@@ -74,6 +74,51 @@ def parse_messages(path, opath, save):
     
     return
 
+def parse_execve(p):
+    prog = ''
+    cmdline = ''
+    if 'argc=' in p:
+        arg_count = p[p.index('argc=')+len('argc='):].split(' ')[0]
+        prog = p[p.index('a0=')+len('a0='):].split(' ')[0].replace("\"", "")
+        if int(arg_count) > 0:
+            for x in range(1, int(arg_count)):
+                p = p.replace('a'+str(x)+'=', '')
+            cmdline = ' '.join(p[p.index('a0=')+len('a0='):].split(' ')[1:]).replace("\"", '')
+    return [prog, cmdline]            
+
+# types to parse 
+# ['DAEMON_START', 'SYSCALL', 'SOCKADDR', 'PROCTITLE', 'CWD', 'PATH', 'EXECVE', 'CONFIG_CHANGE', 'SERVICE_START', 'USER_END', 'CRED_DISP', 'USER_ACCT', 
+# 'USER_CMD', 'CRED_REFR', 'USER_START', 'USER_ERR', 'USER_AUTH', 'USER_LOGIN', 'CRED_ACQ', 'LOGIN', 'UNKNOWN[1334]', 'SERVICE_STOP', 'TTY', 'DAEMON_END']
+def parse_audit(path, opath, type2save=None):
+    bRex = r'type=(?P<type>[^\s]{1,}) msg=audit\((?P<dt>[0-9]{1,}\.[0-9]{1,})\:(?P<id>[0-9]{1,})\): (?P<body>.{1,})'
+    types = []
+    outV = [['time', 'type', 'content']]
+
+    with open(path, 'r') as f:
+        audits = f.readlines()
+    for a in audits:
+        auditLine = re.search(bRex, a)
+        if auditLine is not None:
+            dt = (datetime.fromtimestamp(float(auditLine.group('dt')))).strftime("%d/%m/%Y %H:%M:%S")
+            line = [dt, auditLine.group('type')]
+            # parse execve
+            if (auditLine.group('type') == "EXECVE"):
+                execve_ret = parse_execve(auditLine.group('body'))  
+                line.append(execve_ret)
+            # parse cwd
+            if (auditLine.group('type') == "CWD"):
+                cwd_r = re.search(r'cwd=[\"]{0,1}(?P<dir>[^\"]{1,})', auditLine.group('body'))
+                if cwd_r is not None:
+                    line.append(cwd_r.group('dir'))
+            outV.append(line)
+    df_audit = pd.DataFrame(outV[1:], columns=outV[0])
+    if type2save!=None:
+        df_audit.loc[df_audit['type'] == type2save].to_csv(opath)
+    else: 
+        df_audit.to_csv(opath)
+    
+                
+
 def get_logins(path, opath, op=False):
     pRex = r'(?P<dt>[0-9]{4}-[0-9]{2}-[0-9]{2}T[\S]{1,}) (?P<host>[\S]{1,}) 20[0-9]{2}\.[0-9]{2}\.[0-9]{2,3} [0-9]{2}:[0-9]{2}:[0-9]{0,3} (?P<class>\[[^\]]{1,}\]) (?P<level>[A-Z]{1,}): (?P<content>.{1,})'
     r = []
@@ -108,8 +153,6 @@ def get_logins(path, opath, op=False):
     else:
         out_csv(opath, r, ['Time', 'User', 'IP'])
     return
-
-
 
 def validate_cron(infile):
     r = []
@@ -170,7 +213,7 @@ def analyse_dataframe(infile, query, op=False, oFile=""):
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--mode", help="select mode from list:    bashhistory, warn, messages, query, cron, logins")
+    parser.add_argument("-m", "--mode", help="select mode from list:    bashhistory, warn, messages, audit, query, cron, logins")
     parser.add_argument("-i", "--input", help="input artifact")
     parser.add_argument("-o", "--output", help="output artifact -- for multiparse add outputs as comma seperated e.g. out1, out2 ...")
     parser.add_argument("-op", "--options", help="aditional options for parsers")
@@ -206,7 +249,15 @@ if __name__=="__main__":
             else:
                 analyse_dataframe(args.input, args.query)
         else:
-            print("Query mode requires input file and query\n example parse.py -i in/file -q \"query\"")              
+            print("Query mode requires input file and query\n example parse.py -i in/file -q \"query\"") 
+    elif args.mode == "audit":
+        if (args.input is not None) and (args.output is not None) and (args.options is None):
+            parse_audit(args.input, args.output)
+        elif (args.input is not None) and (args.output is not None) and (args.options is not None):
+            parse_audit(args.input, args.output, args.options)
+        else:
+            print("Parse audit requires input and output files with optional save option")
+            quit()
     else:
         print("Specify a mode with -m from list")
         quit()
