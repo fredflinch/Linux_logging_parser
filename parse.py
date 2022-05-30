@@ -208,7 +208,7 @@ if __name__=="__main__":
         else:
             print("Query mode requires input file and query\n example parse.py -i in/file -q \"query\"")              
     else:
-        print("Specify a mode with -m")
+        print("Specify a mode with -m from list")
         quit()
 
 
