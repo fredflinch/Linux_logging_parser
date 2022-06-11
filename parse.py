@@ -5,7 +5,9 @@ import argparse
 import re 
 from tqdm import tqdm
 import pandas as pd
+
 from ipwhois import IPWhois
+
 
 def out_csv(opath, data, colNames):
     with open(opath,'w', newline='') as out:
@@ -117,7 +119,17 @@ def parse_audit(path, opath, type2save=None):
     else: 
         df_audit.to_csv(opath)
     
-                
+def parse_webaccess(path, opath):
+    waRex = r'(?P<ip>[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}) - - \[(?P<dt>[0-9][0-9]\/[A-Za-z]{3}\/[0-9]{4}\:[0-9][0-9]\:[0-9][0-9]\:[0-9][0-9] \+[0-9]{4})\] \"(?P<method>[A-Za-z]{1,}) (?P<uri>[\S]{1,}) [\S]{1,} (?P<status>[0-9]{3}) (?P<bytes>[0-9]{1,}) [\S]{1,} \"(?P<useragent>[^"]{1,})\"'              
+    with open(path, 'r') as f:
+        webAccesses = f.readlines()
+    cols = [['time', 'ip', 'uri', 'method', 'status', 'useragent', 'bytes']]
+    for wa in webAccesses:
+        s = re.search(waRex, wa)
+        if s is not None:
+            cols.append([s.group('dt'), s.group('ip'), s.group('uri'), s.group('method'), s.group('status'), s.group('useragent'), s.group('bytes')])
+    df_webaccess = pd.DataFrame(cols[1:], columns=cols[0])
+    df_webaccess.to_csv(opath)
 
 def get_logins(path, opath, op=False):
     pRex = r'(?P<dt>[0-9]{4}-[0-9]{2}-[0-9]{2}T[\S]{1,}) (?P<host>[\S]{1,}) 20[0-9]{2}\.[0-9]{2}\.[0-9]{2,3} [0-9]{2}:[0-9]{2}:[0-9]{0,3} (?P<class>\[[^\]]{1,}\]) (?P<level>[A-Z]{1,}): (?P<content>.{1,})'
@@ -258,6 +270,9 @@ if __name__=="__main__":
         else:
             print("Parse audit requires input and output files with optional save option")
             quit()
+    elif args.mode == "webaccess":
+        if (args.input is not None) and (args.output is not None):
+            parse_webaccess(args.input, args.output)
     else:
         print("Specify a mode with -m from list")
         quit()
